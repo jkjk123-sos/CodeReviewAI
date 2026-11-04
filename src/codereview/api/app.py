@@ -14,13 +14,20 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from codereview.api import routes_reviews, routes_rules, routes_stats
 from codereview.api.envelope import envelope
 from codereview.contract.errors import ApiError
 from codereview.infra import db
 
-app = FastAPI(title="CodeReviewAI C 线 API", version="1.0.0")
+_STATIC = Path(__file__).parent / "static"
+
+# 关掉 FastAPI 自带的 /docs：它从 cdn.jsdelivr.net 拉 Swagger 资源，
+# 而该域名在部分校园网/企业网里 TLS 握手会被中断，页面只剩白屏。
+# 改用本地资源，见下面的 /docs 与 /ui。
+app = FastAPI(title="CodeReviewAI C 线 API", version="1.0.0",
+              docs_url=None, redoc_url=None)
 
 
 @app.middleware("http")
@@ -59,12 +66,17 @@ app.include_router(routes_rules.router)
 app.include_router(routes_stats.router)
 
 
-# —— 本地接口控制台 ——
-# /docs 用的是 Swagger UI，资源要从 cdn.jsdelivr.net 加载；
-# 网络受限时会白屏。这里给一个零外部依赖的替代页面。
-_UI_FILE = Path(__file__).parent / "static" / "ui.html"
+# —— 本地接口页面 ——
+app.mount("/static", StaticFiles(directory=_STATIC), name="static")
+
+
+@app.get("/docs", include_in_schema=False)
+def docs_page():
+    """Swagger UI，资源全部本地化，不依赖 CDN。"""
+    return HTMLResponse((_STATIC / "docs.html").read_text(encoding="utf-8"))
 
 
 @app.get("/ui", include_in_schema=False)
 def ui_console():
-    return HTMLResponse(_UI_FILE.read_text(encoding="utf-8"))
+    """轻量控制台：零外部依赖，直读 openapi.json 渲染。"""
+    return HTMLResponse((_STATIC / "ui.html").read_text(encoding="utf-8"))
