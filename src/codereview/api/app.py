@@ -10,8 +10,10 @@ import os
 import uuid
 from datetime import datetime, timezone
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from codereview.api import routes_reviews, routes_rules, routes_stats
 from codereview.api.envelope import envelope
@@ -55,3 +57,14 @@ def healthz():
 app.include_router(routes_reviews.router)
 app.include_router(routes_rules.router)
 app.include_router(routes_stats.router)
+
+
+# —— 本地接口控制台 ——
+# /docs 用的是 Swagger UI，资源要从 cdn.jsdelivr.net 加载；
+# 网络受限时会白屏。这里给一个零外部依赖的替代页面。
+_UI_FILE = Path(__file__).parent / "static" / "ui.html"
+
+
+@app.get("/ui", include_in_schema=False)
+def ui_console():
+    return HTMLResponse(_UI_FILE.read_text(encoding="utf-8"))

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CodeReviewAI · 接口控制台</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --line: #e3e6ea; --text: #1c2024;
+    --muted: #6b7280; --accent: #1f4e79; --ok: #1d9e75; --err: #c0392b;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16181c; --panel:#1e2126; --line:#2e333a; --text:#e6e8eb;
+            --muted:#9aa3ad; --accent:#7ba7c7; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:22px; background:var(--bg); color:var(--text);
+         font: 14px/1.6 system-ui, "Microsoft YaHei", sans-serif; }
+  h1 { font-size:17px; font-weight:600; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:12.5px; margin-bottom:18px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr));
+           gap:10px; margin-bottom:20px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:12px 14px; }
+  .card .k { font-size:11.5px; color:var(--muted); }
+  .card .v { font-size:20px; font-weight:600; margin-top:2px; font-variant-numeric:tabular-nums; }
+  .grp { margin-bottom:18px; }
+  .grp h2 { font-size:13px; font-weight:600; color:var(--accent); margin:0 0 8px;
+            padding-left:8px; border-left:3px solid var(--accent); }
+  .ep { background:var(--panel); border:1px solid var(--line); border-radius:9px;
+        padding:10px 12px; margin-bottom:7px; display:flex; gap:10px;
+        align-items:center; flex-wrap:wrap; }
+  .m { font:600 11px/1 var(--mono); padding:4px 7px; border-radius:4px;
+       background:#e8f0f7; color:#1f4e79; min-width:46px; text-align:center; }
+  @media (prefers-color-scheme: dark) { .m { background:#22303c; color:#9cc4e0; } }
+  .p { font-family:var(--mono); font-size:12.5px; flex:1; min-width:220px; }
+  .p input { font:inherit; width:78px; padding:2px 5px; border:1px solid var(--line);
+             border-radius:4px; background:transparent; color:inherit; }
+  button { font:13px system-ui; padding:5px 13px; border-radius:6px; cursor:pointer;
+           border:1px solid var(--line); background:transparent; color:var(--text); }
+  button:hover { border-color:var(--accent); color:var(--accent); }
+  #out { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+         padding:14px; margin-top:8px; }
+  #out pre { margin:0; font-family:var(--mono); font-size:12.5px; white-space:pre-wrap;
+             word-break:break-all; max-height:340px; overflow:auto; }
+  .meta { font-size:12px; color:var(--muted); margin-bottom:8px; }
+  .badge { display:inline-block; padding:1px 7px; border-radius:4px; font-size:11.5px; }
+  .b200 { background:#e3f4ec; color:var(--ok); }
+  .b4xx { background:#fdeceb; color:var(--err); }
+</style>
+</head>
+<body>
+  <h1>CodeReviewAI · 接口控制台</h1>
+  <div class="sub">不依赖任何外部资源，直接读本服务的 openapi.json 生成</div>
+
+  <div class="cards" id="cards"></div>
+  <div id="groups"></div>
+  <div id="out"><span class="meta">点上面任意「调用」，结果显示在这里</span></div>
+
+<script>
+const groupOf = p =>
+  p.startsWith('/api/v1/reviews') ? '审查记录' :
+  p.startsWith('/api/v1/rules')   ? '规则库' :
+  p.startsWith('/api/v1/stats')   ? '统计' : '健康检查';
+
+async function loadStats() {
+  try {
+    const r = await fetch('/api/v1/stats/summary');
+    const j = await r.json();
+    const d = j.data || {};
+    const items = [
+      ['审查总次数', d.runs ?? 0],
+      ['阻断级', d.blocking ?? 0],
+      ['警告级', d.warning ?? 0],
+      ['提示级', d.info ?? 0],
+      ['平均耗时', (d.avg_ms ?? 0) + ' ms'],
+    ];
+    document.getElementById('cards').innerHTML = items.map(([k, v]) =>
+      `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+  } catch (e) {
+    document.getElementById('cards').innerHTML =
+      `<div class="card"><div class="k">统计加载失败</div><div class="v">—</div></div>`;
+  }
+}
+
+async function loadEndpoints() {
+  const spec = await (await fetch('/openapi.json')).json();
+  const buckets = {};
+  for (const [path, ops] of Object.entries(spec.paths)) {
+    for (const m of Object.keys(ops)) {
+      if (!['get','post','put','delete'].includes(m)) continue;
+      const g = groupOf(path);
+      (buckets[g] = buckets[g] || []).push({ m: m.toUpperCase(), path,
+        hasParam: path.includes('{') });
+    }
+  }
+  document.getElementById('groups').innerHTML = Object.entries(buckets).map(
+    ([g, eps]) => `<div class="grp"><h2>${g}</h2>${eps.map(e => {
+      const shown = e.path.replace(/\{(\w+)\}/g,
+        (_, n) => `<input data-param="${n}" placeholder="${n}">`);
+      return `<div class="ep"><span class="m">${e.m}</span>
+              <span class="p">${shown}</span>
+              <button onclick="call(this)">调用</button></div>`;
+    }).join('')}</div>`).join('');
+}
+
+async function call(btn) {
+  const row = btn.closest('.ep');
+  const method = row.querySelector('.m').textContent;
+  let path = row.querySelector('.p').textContent;
+  row.querySelectorAll('input[data-param]').forEach(i => {
+    path = path.replace('{' + i.dataset.param + '}', i.value.trim() || '{' + i.dataset.param + '}');
+  });
+  const out = document.getElementById('out');
+  out.innerHTML = '<span class="meta">请求中…</span>';
+  const t0 = performance.now();
+  try {
+    const r = await fetch(path, { method });
+    const ms = Math.round(performance.now() - t0);
+    const txt = await r.text();
+    let body = txt;
+    try { body = JSON.stringify(JSON.parse(txt), null, 2); } catch (_) {}
+    const cls = r.status < 400 ? 'b200' : 'b4xx';
+    out.innerHTML = `<div class="meta"><span class="badge ${cls}">${r.status}</span>
+      ${method} ${path} · ${ms} ms</div><pre>${body.replace(/[<>&]/g,
+      c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])).slice(0, 8000)}</pre>`;
+  } catch (e) {
+    out.innerHTML = `<div class="meta"><span class="badge b4xx">失败</span>
+      ${method} ${path}</div><pre>${e}</pre>`;
+  }
+}
+
+loadStats(); loadEndpoints();
+</script>
+</body>
+</html>
