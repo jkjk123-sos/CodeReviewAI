@@ -15,68 +15,76 @@
             --muted:#9aa3ad; --accent:#7ba7c7; }
   }
   * { box-sizing: border-box; }
-  body { margin:0; padding:22px; background:var(--bg); color:var(--text);
+  body { margin:0; padding:20px 20px 40px; background:var(--bg); color:var(--text);
          font: 14px/1.6 system-ui, "Microsoft YaHei", sans-serif; }
-  h1 { font-size:17px; font-weight:600; margin:0 0 4px; }
-  .sub { color:var(--muted); font-size:12.5px; margin-bottom:18px; }
-  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr));
-           gap:10px; margin-bottom:20px; }
+  h1 { font-size:17px; font-weight:600; margin:0 0 3px; }
+  .sub { color:var(--muted); font-size:12.5px; margin-bottom:16px; }
+
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(116px,1fr));
+           gap:9px; margin-bottom:14px; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
-          padding:12px 14px; }
+          padding:11px 13px; }
   .card .k { font-size:11.5px; color:var(--muted); }
-  .card .v { font-size:20px; font-weight:600; margin-top:2px; font-variant-numeric:tabular-nums; }
-  .grp { margin-bottom:18px; }
-  .grp h2 { font-size:13px; font-weight:600; color:var(--accent); margin:0 0 8px;
+  .card .v { font-size:19px; font-weight:600; margin-top:1px; font-variant-numeric:tabular-nums; }
+
+  /* 结果区放在顶部，点完就在眼前 */
+  #out { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+         padding:12px 14px; margin-bottom:16px; }
+  #out.idle { color:var(--muted); font-size:13px; }
+  #out .meta { font-size:12.5px; color:var(--muted); margin-bottom:7px; }
+  #out pre { margin:0; font-family:var(--mono); font-size:12.5px; white-space:pre-wrap;
+             word-break:break-all; max-height:300px; overflow:auto; }
+  .badge { display:inline-block; padding:1px 7px; border-radius:4px; font-size:11.5px;
+           font-weight:600; }
+  .b2xx { background:#e3f4ec; color:var(--ok); }
+  .b4xx { background:#fdeceb; color:var(--err); }
+
+  .grp { margin-bottom:16px; }
+  .grp h2 { font-size:13px; font-weight:600; color:var(--accent); margin:0 0 7px;
             padding-left:8px; border-left:3px solid var(--accent); }
   .ep { background:var(--panel); border:1px solid var(--line); border-radius:9px;
-        padding:10px 12px; margin-bottom:7px; display:flex; gap:10px;
+        padding:9px 12px; margin-bottom:6px; display:flex; gap:9px;
         align-items:center; flex-wrap:wrap; }
   .m { font:600 11px/1 var(--mono); padding:4px 7px; border-radius:4px;
        background:#e8f0f7; color:#1f4e79; min-width:46px; text-align:center; }
   @media (prefers-color-scheme: dark) { .m { background:#22303c; color:#9cc4e0; } }
-  .p { font-family:var(--mono); font-size:12.5px; flex:1; min-width:220px; }
-  .p input { font:inherit; width:78px; padding:2px 5px; border:1px solid var(--line);
+  .p { font-family:var(--mono); font-size:12.5px; flex:1; min-width:210px; }
+  .p input { font:inherit; width:74px; padding:2px 5px; border:1px solid var(--line);
              border-radius:4px; background:transparent; color:inherit; }
   button { font:13px system-ui; padding:5px 13px; border-radius:6px; cursor:pointer;
-           border:1px solid var(--line); background:transparent; color:var(--text); }
+           border:1px solid var(--line); background:transparent; color:var(--text);
+           transition: .12s; }
   button:hover { border-color:var(--accent); color:var(--accent); }
-  #out { background:var(--panel); border:1px solid var(--line); border-radius:10px;
-         padding:14px; margin-top:8px; }
-  #out pre { margin:0; font-family:var(--mono); font-size:12.5px; white-space:pre-wrap;
-             word-break:break-all; max-height:340px; overflow:auto; }
-  .meta { font-size:12px; color:var(--muted); margin-bottom:8px; }
-  .badge { display:inline-block; padding:1px 7px; border-radius:4px; font-size:11.5px; }
-  .b200 { background:#e3f4ec; color:var(--ok); }
-  .b4xx { background:#fdeceb; color:var(--err); }
+  button:disabled { opacity:.55; cursor:default; }
 </style>
 </head>
 <body>
   <h1>CodeReviewAI · 接口控制台</h1>
-  <div class="sub">不依赖任何外部资源，直接读本服务的 openapi.json 生成</div>
+  <div class="sub">零外部依赖，直读本服务 openapi.json 生成</div>
 
   <div class="cards" id="cards"></div>
+  <div id="out" class="idle">点下面任意「调用」，结果显示在这里（就在上方）</div>
   <div id="groups"></div>
-  <div id="out"><span class="meta">点上面任意「调用」，结果显示在这里</span></div>
 
 <script>
-const groupOf = p =>
+const GROUP_OF = p =>
   p.startsWith('/api/v1/reviews') ? '审查记录' :
   p.startsWith('/api/v1/rules')   ? '规则库' :
   p.startsWith('/api/v1/stats')   ? '统计' : '健康检查';
 
+const esc = s => String(s).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+const out = () => document.getElementById('out');
+
 async function loadStats() {
   try {
-    const r = await fetch('/api/v1/stats/summary');
-    const j = await r.json();
+    const j = await (await fetch('/api/v1/stats/summary')).json();
     const d = j.data || {};
-    const items = [
-      ['审查总次数', d.runs ?? 0],
-      ['阻断级', d.blocking ?? 0],
-      ['警告级', d.warning ?? 0],
-      ['提示级', d.info ?? 0],
+    const rows = [
+      ['审查总次数', d.runs ?? 0], ['阻断级', d.blocking ?? 0],
+      ['警告级', d.warning ?? 0],  ['提示级', d.info ?? 0],
       ['平均耗时', (d.avg_ms ?? 0) + ' ms'],
     ];
-    document.getElementById('cards').innerHTML = items.map(([k, v]) =>
+    document.getElementById('cards').innerHTML = rows.map(([k, v]) =>
       `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
   } catch (e) {
     document.getElementById('cards').innerHTML =
@@ -90,48 +98,68 @@ async function loadEndpoints() {
   for (const [path, ops] of Object.entries(spec.paths)) {
     for (const m of Object.keys(ops)) {
       if (!['get','post','put','delete'].includes(m)) continue;
-      const g = groupOf(path);
-      (buckets[g] = buckets[g] || []).push({ m: m.toUpperCase(), path,
-        hasParam: path.includes('{') });
+      (buckets[GROUP_OF(path)] = buckets[GROUP_OF(path)] || []).push({ m: m.toUpperCase(), path });
     }
   }
-  document.getElementById('groups').innerHTML = Object.entries(buckets).map(
-    ([g, eps]) => `<div class="grp"><h2>${g}</h2>${eps.map(e => {
+  document.getElementById('groups').innerHTML = Object.entries(buckets).map(([g, eps]) =>
+    `<div class="grp"><h2>${g}</h2>${eps.map(e => {
       const shown = e.path.replace(/\{(\w+)\}/g,
         (_, n) => `<input data-param="${n}" placeholder="${n}">`);
-      return `<div class="ep"><span class="m">${e.m}</span>
-              <span class="p">${shown}</span>
-              <button onclick="call(this)">调用</button></div>`;
+      return `<div class="ep" data-method="${e.m}" data-path="${esc(e.path)}">
+                <span class="m">${e.m}</span>
+                <span class="p">${shown}</span>
+                <button type="button" data-act="call">调用</button>
+              </div>`;
     }).join('')}</div>`).join('');
 }
 
-async function call(btn) {
-  const row = btn.closest('.ep');
-  const method = row.querySelector('.m').textContent;
-  let path = row.querySelector('.p').textContent;
+async function invoke(row, btn) {
+  const method = row.dataset.method;
+  let path = row.dataset.path;
   row.querySelectorAll('input[data-param]').forEach(i => {
-    path = path.replace('{' + i.dataset.param + '}', i.value.trim() || '{' + i.dataset.param + '}');
+    const v = i.value.trim();
+    path = path.replace(`{${i.dataset.param}}`, v || `{${i.dataset.param}}`);
   });
-  const out = document.getElementById('out');
-  out.innerHTML = '<span class="meta">请求中…</span>';
+
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = '请求中…';
+  out().className = '';
+  out().innerHTML = `<div class="meta">${method} ${esc(path)} · 请求中…</div>`;
+
   const t0 = performance.now();
   try {
     const r = await fetch(path, { method });
     const ms = Math.round(performance.now() - t0);
-    const txt = await r.text();
-    let body = txt;
-    try { body = JSON.stringify(JSON.parse(txt), null, 2); } catch (_) {}
-    const cls = r.status < 400 ? 'b200' : 'b4xx';
-    out.innerHTML = `<div class="meta"><span class="badge ${cls}">${r.status}</span>
-      ${method} ${path} · ${ms} ms</div><pre>${body.replace(/[<>&]/g,
-      c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])).slice(0, 8000)}</pre>`;
+    const raw = await r.text();
+    let body = raw;
+    try { body = JSON.stringify(JSON.parse(raw), null, 2); } catch (_) {}
+    const cls = r.status < 400 ? 'b2xx' : 'b4xx';
+    out().innerHTML =
+      `<div class="meta"><span class="badge ${cls}">${r.status}</span>　
+        ${method} ${esc(path)} · ${ms} ms · ${raw.length} 字节</div>
+       <pre>${esc(body).slice(0, 8000)}</pre>`;
   } catch (e) {
-    out.innerHTML = `<div class="meta"><span class="badge b4xx">失败</span>
-      ${method} ${path}</div><pre>${e}</pre>`;
+    out().innerHTML =
+      `<div class="meta"><span class="badge b4xx">失败</span>　${method} ${esc(path)}</div>
+       <pre>${esc(e.message || e)}\n\n如果是路径里带 {xxx} 的接口，请先填好输入框再点调用。</pre>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 }
 
-loadStats(); loadEndpoints();
+// 事件委托：不依赖内联 onclick，避免被 CSP 拦掉
+document.addEventListener('click', ev => {
+  const btn = ev.target.closest('button[data-act="call"]');
+  if (!btn) return;
+  const row = btn.closest('.ep');
+  if (row) invoke(row, btn);
+});
+
+loadStats();
+loadEndpoints();
 </script>
 </body>
 </html>
